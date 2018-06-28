@@ -1,0 +1,69 @@
+---
+title: "ReproResearch_assigment2"
+author: "Gleb Artamonov"
+date: '26 июня 2018 г '
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Processing data
+###Reading the data
+```{r}
+library(data.table)
+library(magrittr)
+library(ggplot2)
+library(knitr)
+options(scipen = 100)
+#reading and setting as data.table
+storm = read.csv("./repdata%2Fdata%2FStormData.csv") %>% setDT
+#set names to lower case
+names(storm) %<>% tolower()
+str(storm)
+datecols=grep("date$|time$",names(storm))
+summary(storm)
+```
+Lets look how events labeled.
+```{r}
+storm$evtype %>% table
+```
+Well labels are pretty messy lets clean it a little bit
+```{r}
+#lets have all events in lower case so Flood and flood where counted the same
+storm$evtype %<>% as.character() %>% tolower()
+storm$evtype %>% table %>% sort
+# lets get rid off summary-rows
+# then we will substitute any character that is not a charcter,number or dot
+# to spaces and finaly we will compress repeated spaces just to single one
+storm[,evtype_short:=evtype]
+storm2=storm[!grepl("summary",evtype)]
+storm2$evtype_short = storm2$evtype %>% gsub("[^[:alnum:].]"," ",.) %>% 
+      trimws %>% gsub("\\s+"," ",.) %>% gsub("\\.$","",.)
+# %>% unique %>% length()
+storm2[,23:28,with=F] %>% summary
+#we can see that all variables of interest don't have any missing values
+#even thoght there are some strange measurements in expenses columns
+#lets delete cases where no damage where done
+storm2=storm2[fatalities +injuries+propdmg+cropdmg!=0,]
+#here we have some strange measuments
+storm2$propdmgexp %>% table
+storm2$cropdmgexp %>% table
+storm2$propdmgexp %<>% tolower()
+storm2$cropdmgexp %<>% tolower()
+multchar=function(number,char){
+     res=ifelse(char=="k",number*10^3,
+            ifelse(char=="m", number*10^6,
+                  ifelse(char=="b",number*10^9, number)))
+      res
+}
+# if exp not in k,m,b we calculate damage values as they are 
+# so 1 "smth that not k,m,b" will be estimated as 1
+storm2=storm2[,propdmgval:=multchar(propdmg,propdmgexp)][
+              ,cropdmgval:=multchar(cropdmg,cropdmgexp)]
+
+```
+
+
+
