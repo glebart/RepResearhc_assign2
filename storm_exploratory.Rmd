@@ -40,7 +40,11 @@ storm$evtype %>% table %>% sort
 storm[,evtype_short:=evtype]
 storm2=storm[!grepl("summary",evtype)]
 storm2$evtype_short = storm2$evtype %>% gsub("[^[:alnum:].]"," ",.) %>% 
-      trimws %>% gsub("\\s+"," ",.) %>% gsub("\\.$","",.)
+      trimws %>% gsub("\\s+"," ",.) %>% gsub("\\.$","",.) %>% 
+      gsub("winds","wind",.) %>% gsub("record|excessive|extreme","",.) %>% 
+      gsub("thunderstorms?","tstm",.) %>% gsub("flooding","flood",.) %>% 
+      gsub("hail[ .0-9]+$","hail",.) %>%  gsub("\\s?g?\\d+\\s?(mph)?\\.?","",.) %>% 
+      gsub("hurricane.*","hurricane",.)%>% trimws
 # %>% unique %>% length()
 storm2[,23:28,with=F] %>% summary
 #we can see that all variables of interest don't have any missing values
@@ -62,6 +66,42 @@ multchar=function(number,char){
 # so 1 "smth that not k,m,b" will be estimated as 1
 storm2=storm2[,propdmgval:=multchar(propdmg,propdmgexp)][
               ,cropdmgval:=multchar(cropdmg,cropdmgexp)]
+
+cols=c("fatalities","injuries","propdmgval","cropdmgval")
+
+stormSummary=storm2[,lapply(.SD,sum,na.rm=T),
+                    .SDcols=cols,
+                    by=evtype_short]
+# kind of bad with sum==0
+stormSummary[,paste0("share_",cols):=lapply(.SD,function(x){x/sum(x,na.rm=T)}),
+             .SDcols=2:5]
+# we still have a lot of different event_types that have rather typos or some 
+# additional information
+# lets see the share of those dirty/multilable eventtype in overall damage
+# volume/value
+
+setorder(stormSummary,-share_fatalities)
+stormSummary[,fatalities_cut:=ifelse(cumsum(share_fatalities)<.95,1,0)]
+setorder(stormSummary,-share_injuries)
+stormSummary[,injuries_cut:=ifelse(cumsum(share_injuries)<.95,1,0)]
+setorder(stormSummary,-share_propdmgval)
+stormSummary[,propdmgval_cut:=ifelse(cumsum(share_propdmgval)<.95,1,0)]
+setorder(stormSummary,-share_cropdmgval)
+stormSummary[,cropdmgval_cut:=ifelse(cumsum(share_cropdmgval)<.95,1,0)]
+stormSummary[fatalities_cut+injuries_cut+propdmgval_cut+cropdmgval_cut==0,]
+
+ggplot(data=stormSummary) + geom_bar(aes(x=evtype_short))
+
+
+share.cut=function(x,cum_share){
+      x %<>% sort(decreasing = F)
+      res=ifelse(cumsum())
+}
+stormSummary[share_fatalities<.01/3,.(.N,"share"=sum(share_fatalities))]
+stormSummary[share_injuries<.01/2,.(.N,"share"=sum(share_injuries))]
+stormSummary[share_propdmgval<.01,.(.N,"share"=sum(share_propdmgval))]
+stormSummary[share_cropdmgval<.01,.(.N,"share"=sum(share_cropdmgval))]
+ggplot(data=stormSummary)
 
 ```
 
