@@ -1,7 +1,7 @@
 ---
 title: "ReproResearch_assigment2"
 author: "Gleb Artamonov"
-date: '26 июня 2018 г '
+date: '2018 july'
 output: html_document
 ---
 
@@ -72,37 +72,60 @@ cols=c("fatalities","injuries","propdmgval","cropdmgval")
 stormSummary=storm2[,lapply(.SD,sum,na.rm=T),
                     .SDcols=cols,
                     by=evtype_short]
+stormSummary[,dmgval:=propdmgval+cropdmgval]
+stormSummary=melt(stormSummary,id.vars = c("evtype_short"),
+                  measure.vars = c(cols[1:2],"dmgval"))
 # kind of bad with sum==0
-stormSummary[,paste0("share_",cols):=lapply(.SD,function(x){x/sum(x,na.rm=T)}),
-             .SDcols=2:5]
+stormSummary[,share:=value/sum(value,na.rm=T),
+             by=variable]
 # we still have a lot of different event_types that have rather typos or some 
 # additional information
 # lets see the share of those dirty/multilable eventtype in overall damage
 # volume/value
+setorder(stormSummary,variable,share)
+stormSummary[,cumsum:=cumsum(share),by=.(variable)]
+stormSummary[cumsum>.2 & variable!="dmgval",evtype_short %>% unique()]
+stormSummary[,evtype_health:=evtype_short][
+      cumsum<=.2 & variable!="dmgval",evtype_health:="other"]
+stormSummary[cumsum>.2 & variable=="dmgval",evtype_short %>% unique()]
+stormSummary[,evtype_pcdmg:=evtype_short][
+      cumsum<=.2 & variable=="dmgval",evtype_pcdmg:="other"]
+stormHealth=stormSummary[variable %in% c("fatalities","injuries"),
+                         .(value=sum(value,na.rm = T),
+                           share=sum(share,na.rm = T)),
+                         by=.(variable,evtype_health)]
+stormPCDamage=stormSummary[variable %in% c("dmgval"),
+                         .(value=sum(value,na.rm = T),
+                           share=sum(share,na.rm = T)),
+                         by=.(variable,evtype_pcdmg)]
+stormHealth[,srt:=ifelse(evtype_health!="other",share,-share)]
+stormPCDamage[,srt:=ifelse(evtype_pcdmg!="other",share,-share)]
+#setorder(stormSummary,share_fatalities)
+ggplot(data=stormHealth,
+       aes(x=reorder(evtype_health,srt),y=value)) + 
+      geom_bar(stat="sum") + coord_flip() + 
+      geom_text(data=stormHealth[evtype_health!="tornado"],
+                aes(label=sprintf("%s (%s%%)",value,
+                                  round(share,2)*100)),
+                color="red",hjust="left")+ 
+      geom_text(data=stormHealth[evtype_health=="tornado"],
+                aes(label=sprintf("%s (%s%%)",value,
+                                  round(share,2)*100)),
+                color="white",hjust="right")+
+      facet_wrap(.~variable,scales = "free_x")
 
-setorder(stormSummary,-share_fatalities)
-stormSummary[,fatalities_cut:=ifelse(cumsum(share_fatalities)<.95,1,0)]
-setorder(stormSummary,-share_injuries)
-stormSummary[,injuries_cut:=ifelse(cumsum(share_injuries)<.95,1,0)]
-setorder(stormSummary,-share_propdmgval)
-stormSummary[,propdmgval_cut:=ifelse(cumsum(share_propdmgval)<.95,1,0)]
-setorder(stormSummary,-share_cropdmgval)
-stormSummary[,cropdmgval_cut:=ifelse(cumsum(share_cropdmgval)<.95,1,0)]
-stormSummary[fatalities_cut+injuries_cut+propdmgval_cut+cropdmgval_cut==0,]
-
-ggplot(data=stormSummary) + geom_bar(aes(x=evtype_short))
-
-
-share.cut=function(x,cum_share){
-      x %<>% sort(decreasing = F)
-      res=ifelse(cumsum())
-}
-stormSummary[share_fatalities<.01/3,.(.N,"share"=sum(share_fatalities))]
-stormSummary[share_injuries<.01/2,.(.N,"share"=sum(share_injuries))]
-stormSummary[share_propdmgval<.01,.(.N,"share"=sum(share_propdmgval))]
-stormSummary[share_cropdmgval<.01,.(.N,"share"=sum(share_cropdmgval))]
-ggplot(data=stormSummary)
-
+ggplot(data=stormPCDamage,
+       aes(x=reorder(evtype_pcdmg,srt),y=value/10^9)) + 
+      geom_bar(stat="sum") + coord_flip() +
+            geom_text(data=stormPCDamage[evtype_pcdmg!="flood"],
+                aes(label=sprintf("%s bn$ (%s%%)",round(value/10^9,2),
+                                  round(share,2)*100)),
+                color="red",hjust="left")+ 
+      geom_text(data=stormPCDamage[evtype_pcdmg=="flood"],
+                aes(label=sprintf("%s bn$ (%s%%)",round(value/10^9,2),
+                                  round(share,2)*100)),
+                color="white",hjust="right")+
+      facet_wrap(.~variable,scales = "free_x")
 ```
 
 
