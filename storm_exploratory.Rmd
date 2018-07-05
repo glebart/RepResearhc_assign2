@@ -1,5 +1,5 @@
 ---
-title: "ReproResearch_assigment2"
+title: "Tornados are most harmfull to public health, floods - to health."
 author: "Gleb Artamonov"
 date: '2018 july'
 output: html_document
@@ -9,35 +9,68 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+##synopsis
+The report shows that tornados,... are most harmfull to public health, and floods
+are most harmfull for property/crop damage. The calculations are made on modified
+event variable which is aggregation of original event_type. Modified variable addreses some  
+misspelling/multiple word forms/some irrelevant(for summary purposes) information within event 
+like measurments(mph,extreme,record etc.).
+Report addresses only most influential events that responsible for atleast of 80%  
+of given damage done. Anything that accounts for last 20% of damage is summation
+of multiple-event cases, cases with bad labeling and least damaging events.
+
 ## Processing data
 ###Reading the data
-```{r}
+```{r,cache=TRUE}
 library(data.table)
 library(magrittr)
 library(ggplot2)
 library(knitr)
 options(scipen = 100)
+options(stringsAsFactors = T)
 #reading and setting as data.table
 storm = read.csv("./repdata%2Fdata%2FStormData.csv") %>% setDT
 #set names to lower case
 names(storm) %<>% tolower()
-str(storm)
+#str(storm)
 datecols=grep("date$|time$",names(storm))
 summary(storm)
 ```
 Lets look how events labeled.
-```{r}
-storm$evtype %>% table
+```{r,echo=F}
+events_number=storm$evtype %>% unique %>% length()
 ```
-Well labels are pretty messy lets clean it a little bit
-```{r}
-#lets have all events in lower case so Flood and flood where counted the same
-storm$evtype %<>% as.character() %>% tolower()
+There is a lot of events (`r events_number`)! Well labels are pretty messy lets clean it a little bit
+```{r,echo=F}
+
+#number of cases per lable sorted in alphabetical order
+storm$evtype %>% table
+#same but sorted from most common to least common
 storm$evtype %>% table %>% sort
-# lets get rid off summary-rows
+```
+The event-type variable is actually very messy one. Some cases are misspelled,  
+some have different punctuation marks, some cases are summaries and have  
+nothing to do with event etc. So most of processing comes down to 
+clearing lables for events. 
+First, we get rid of any symbols that are not number or  
+charecter and transform all events to lower case. Then we will delete adjectives  
+like record/excessive/extreme so "record heat" will become just a "heat". 
+Also we substitute longer forms of words with shorter ones (flooding->flood,winds->wind etc.)
+Thundestorms in lables substituted to tstm. Hails of different sizes summarized to hail, 
+named hurricanes summarized to hurricane. 
+Also any extra spaces in labeles are trimmed. 
+Finaly, there are still a lot of events left that are misspelled or 
+cases with several event types per case and other probles. We decided that we will 
+show only most harmfull events for which at least of 80% all registered damage is acounted.
+All other events are summarizes in "other" lable.
+
+```{r}
 # then we will substitute any character that is not a charcter,number or dot
 # to spaces and finaly we will compress repeated spaces just to single one
+#lets have all events in lower case so Flood and flood where counted the same
+storm$evtype %<>% as.character() %>% tolower()
 storm[,evtype_short:=evtype]
+# lets get rid off summary-rows
 storm2=storm[!grepl("summary",evtype)]
 storm2$evtype_short = storm2$evtype %>% gsub("[^[:alnum:].]"," ",.) %>% 
       trimws %>% gsub("\\s+"," ",.) %>% gsub("\\.$","",.) %>% 
@@ -51,6 +84,13 @@ storm2[,23:28,with=F] %>% summary
 #even thoght there are some strange measurements in expenses columns
 #lets delete cases where no damage where done
 storm2=storm2[fatalities +injuries+propdmg+cropdmg!=0,]
+
+events_number=storm2$evtype_short %>% unique() %>% length()
+```
+After we done with label cleaning we have `r events_number` which is considerably less
+but still a lot. So we will use event-type variable and will calculate summariezed
+damage per event.
+```{r}
 #here we have some strange measuments
 storm2$propdmgexp %>% table
 storm2$cropdmgexp %>% table
@@ -72,38 +112,60 @@ cols=c("fatalities","injuries","propdmgval","cropdmgval")
 stormSummary=storm2[,lapply(.SD,sum,na.rm=T),
                     .SDcols=cols,
                     by=evtype_short]
+```
+For property and crop damage evaluation we will use one new variable that is summation
+of property and crop damage.
+```{r}
 stormSummary[,dmgval:=propdmgval+cropdmgval]
 stormSummary=melt(stormSummary,id.vars = c("evtype_short"),
                   measure.vars = c(cols[1:2],"dmgval"))
+
+```
+
+We still have a lot of different event-types that have rather typos or some 
+additional information. Lets see the share of those dirty/multi-lable events 
+in overall damage volume/value.
+```{r}
 # kind of bad with sum==0
 stormSummary[,share:=value/sum(value,na.rm=T),
              by=variable]
-# we still have a lot of different event_types that have rather typos or some 
-# additional information
-# lets see the share of those dirty/multilable eventtype in overall damage
-# volume/value
 setorder(stormSummary,variable,share)
 stormSummary[,cumsum:=cumsum(share),by=.(variable)]
+# 8 events have done >80% damage to health(deaths and injuries independetly)
 stormSummary[cumsum>.2 & variable!="dmgval",evtype_short %>% unique()]
 stormSummary[,evtype_health:=evtype_short][
       cumsum<=.2 & variable!="dmgval",evtype_health:="other"]
+# 7 events have done >80% damage to the property and crop
 stormSummary[cumsum>.2 & variable=="dmgval",evtype_short %>% unique()]
 stormSummary[,evtype_pcdmg:=evtype_short][
       cumsum<=.2 & variable=="dmgval",evtype_pcdmg:="other"]
+```
+###Results
+Tornados and heat are 2 most frequent events that lead to death with shares  
+in 37% and 20% of all death respectivly. Also tornados is reason for majority injuries(65%).
+Floods(32%), hurricanes(19%) and tornados(12%) are events that made the most damage
+to property and crop.
+
+
+```{r}
+#Health summary
 stormHealth=stormSummary[variable %in% c("fatalities","injuries"),
                          .(value=sum(value,na.rm = T),
                            share=sum(share,na.rm = T)),
                          by=.(variable,evtype_health)]
+#PC-Damage summary
 stormPCDamage=stormSummary[variable %in% c("dmgval"),
                          .(value=sum(value,na.rm = T),
                            share=sum(share,na.rm = T)),
                          by=.(variable,evtype_pcdmg)]
+
+
 stormHealth[,srt:=ifelse(evtype_health!="other",share,-share)]
 stormPCDamage[,srt:=ifelse(evtype_pcdmg!="other",share,-share)]
 #setorder(stormSummary,share_fatalities)
 ggplot(data=stormHealth,
        aes(x=reorder(evtype_health,srt),y=value)) + 
-      geom_bar(stat="sum") + coord_flip() + 
+      geom_bar(stat="sum",show.legend = F) + coord_flip() + 
       geom_text(data=stormHealth[evtype_health!="tornado"],
                 aes(label=sprintf("%s (%s%%)",value,
                                   round(share,2)*100)),
@@ -111,12 +173,14 @@ ggplot(data=stormHealth,
       geom_text(data=stormHealth[evtype_health=="tornado"],
                 aes(label=sprintf("%s (%s%%)",value,
                                   round(share,2)*100)),
-                color="white",hjust="right")+
-      facet_wrap(.~variable,scales = "free_x")
-
+                color="white",hjust="right") +
+      facet_wrap(.~variable,scales = "free_x") + 
+      labs(y="Number of cases across USA",x="Cause event") 
+      
+stormPCDamage$variable="Damage"
 ggplot(data=stormPCDamage,
-       aes(x=reorder(evtype_pcdmg,srt),y=value/10^9)) + 
-      geom_bar(stat="sum") + coord_flip() +
+       aes(x=reorder(evtype_pcdmg,srt),y=c(value/10^9)))  + 
+      geom_bar(stat="sum",show.legend = F) + coord_flip() +
             geom_text(data=stormPCDamage[evtype_pcdmg!="flood"],
                 aes(label=sprintf("%s bn$ (%s%%)",round(value/10^9,2),
                                   round(share,2)*100)),
@@ -125,7 +189,8 @@ ggplot(data=stormPCDamage,
                 aes(label=sprintf("%s bn$ (%s%%)",round(value/10^9,2),
                                   round(share,2)*100)),
                 color="white",hjust="right")+
-      facet_wrap(.~variable,scales = "free_x")
+      facet_wrap(.~variable,scales = "free_x") + 
+      labs(y="Damage across USA value, Billions $ ",x="Cause event")
 ```
 
 
