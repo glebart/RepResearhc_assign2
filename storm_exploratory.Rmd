@@ -1,28 +1,27 @@
 ---
-title: "Tornados are most harmfull to public health, floods - to health."
+title: "Tornados are most harmfull to public health, floods - to economics."
 author: "Gleb Artamonov"
 date: '2018 july'
 output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = TRUE,cache=TRUE)
 ```
 
-##synopsis
-The report shows that tornados,... are most harmfull to public health, and floods
-are most harmfull for property/crop damage. The calculations are made on modified
-event variable which is aggregation of original event_type. Modified variable addreses some  
-misspelling/multiple word forms/some irrelevant(for summary purposes) information within event 
-like measurments(mph,extreme,record etc.).
-Report addresses only most influential events that responsible for atleast of 80%  
-of given damage done. Anything that accounts for last 20% of damage is summation
-of multiple-event cases, cases with bad labeling and least damaging events.
+##Synopsis
+The report shows that tornados are most harmfull to public health, and floods 
+are most harmfull to property/crop damage. The calculations are made on modified
+event variable. Event type variable was modified to addreses next problems: multiple 
+word forms, presence of irrelevant (for summary purposes) information within event 
+(measurments, magnitudes, names).
+Report addresses only most impactfull weather events that together are responsible for at least 80% 
+of given(public health, property) damage done. Anything that in last 20% of damage done is summarized in 'other' event and stands for multiple-event cases, cases with bad labeling and least damaging events.
 
-## Processing data
+## Data processing
 ###Reading the data
-```{r,cache=TRUE}
-library(data.table)
+```{r}
+library(data.table,quietly = T)
 library(magrittr)
 library(ggplot2)
 library(knitr)
@@ -32,62 +31,65 @@ options(stringsAsFactors = T)
 storm = read.csv("./repdata%2Fdata%2FStormData.csv") %>% setDT
 #set names to lower case
 names(storm) %<>% tolower()
-#str(storm)
-datecols=grep("date$|time$",names(storm))
+```
+```{r,results=F}
+#summary - not gonna print it in output
 summary(storm)
 ```
-Lets look how events labeled.
-```{r,echo=F}
+Lets look how events are labeled and how many unique events are in data.
+```{r}
 events_number=storm$evtype %>% unique %>% length()
+events_number
 ```
-There is a lot of events (`r events_number`)! Well labels are pretty messy lets clean it a little bit
-```{r,echo=F}
-
-#number of cases per lable sorted in alphabetical order
+There is a lot of unique event labels (`r events_number`)! And it is actually pretty
+dirty variable. Some summary may be seen with next 2 commands(not printed dew to big size):
+```{r,results=F}
+#number of cases per label sorted in alphabetical order
 storm$evtype %>% table
-#same but sorted from most common to least common
+#same but sorted from most to least common
 storm$evtype %>% table %>% sort
 ```
-The event-type variable is actually very messy one. Some cases are misspelled,  
-some have different punctuation marks, some cases are summaries and have  
-nothing to do with event etc. So most of processing comes down to 
-clearing lables for events. 
-First, we get rid of any symbols that are not number or  
-charecter and transform all events to lower case. Then we will delete adjectives  
-like record/excessive/extreme so "record heat" will become just a "heat". 
-Also we substitute longer forms of words with shorter ones (flooding->flood,winds->wind etc.)
-Thundestorms in lables substituted to tstm. Hails of different sizes summarized to hail, 
-named hurricanes summarized to hurricane. 
+###Event type cleaning
+
+Event-type variable has number of problems. Lets name a few:
+
+* some events are misspelled or have range of word-forms or abbreviations       
+* some events have different punctuation marks(/,\-.)     
+* some cases are periodic summaries and have nothing to do with event types       
+* some cases have intensity measures within label(speed, sizes etc.) or 
+quality magnitudes (extreme/record etc.)           
+
+We'll do several steps to address mentioned problems. Before any transoformations we will exclude
+from analysis all cases that have "summary" in event variable for obvious reasons.
+First, we'll get rid of any symbols that are not number or 
+charecter and transform all events to lower case. Then we'll delete adjectives like record/excessive/extreme so "record heat" will become just a "heat". 
+Also we'll substitute longer forms of words with shorter ones (flooding->flood,winds->wind etc.)
+Thundestorms in lables will be substituted to tstm. Hails of different sizes are summarized to hail, speed measures are removed also. After that named hurricanes summarized to hurricane. 
 Also any extra spaces in labeles are trimmed. 
-Finaly, there are still a lot of events left that are misspelled or 
-cases with several event types per case and other probles. We decided that we will 
-show only most harmfull events for which at least of 80% all registered damage is acounted.
-All other events are summarizes in "other" lable.
 
 ```{r}
-# then we will substitute any character that is not a charcter,number or dot
-# to spaces and finaly we will compress repeated spaces just to single one
-#lets have all events in lower case so Flood and flood where counted the same
+
+#all events to lower case
 storm$evtype %<>% as.character() %>% tolower()
 storm[,evtype_short:=evtype]
-# lets get rid off summary-rows
+#get rid off summary rows
 storm2=storm[!grepl("summary",evtype)]
+#chain of gsub cleaning of event types
 storm2$evtype_short = storm2$evtype %>% gsub("[^[:alnum:].]"," ",.) %>% 
       trimws %>% gsub("\\s+"," ",.) %>% gsub("\\.$","",.) %>% 
-      gsub("winds","wind",.) %>% gsub("record|excessive|extreme","",.) %>% 
+      gsub("winds","wind",.) %>% gsub("record|excessive|extreme|dense","",.) %>% 
       gsub("thunderstorms?","tstm",.) %>% gsub("flooding","flood",.) %>% 
+      gsub("rain","rains",.) %>% 
       gsub("hail[ .0-9]+$","hail",.) %>%  gsub("\\s?g?\\d+\\s?(mph)?\\.?","",.) %>% 
       gsub("hurricane.*","hurricane",.)%>% trimws
-# %>% unique %>% length()
-storm2[,23:28,with=F] %>% summary
-#we can see that all variables of interest don't have any missing values
-#even thoght there are some strange measurements in expenses columns
-#lets delete cases where no damage where done
-storm2=storm2[fatalities +injuries+propdmg+cropdmg!=0,]
 
+#we can see that all variables of interest don't have any missing values
+storm2[,23:28,with=F] %>% summary
+#we cut number of lables by 1/3 with basic gsubs
+storm2$evtype_short %>% unique() %>% length()
 events_number=storm2$evtype_short %>% unique() %>% length()
 ```
-After we done with label cleaning we have `r events_number` which is considerably less
+After we've  done with label cleaning we have `r events_number` which is considerably less
 but still a lot. So we will use event-type variable and will calculate summariezed
 damage per event.
 ```{r}
@@ -113,18 +115,18 @@ stormSummary=storm2[,lapply(.SD,sum,na.rm=T),
                     .SDcols=cols,
                     by=evtype_short]
 ```
-For property and crop damage evaluation we will use one new variable that is summation
-of property and crop damage.
+We'll sum property and crop damage together and use it as measure of overall damage to property and crop.
 ```{r}
 stormSummary[,dmgval:=propdmgval+cropdmgval]
 stormSummary=melt(stormSummary,id.vars = c("evtype_short"),
                   measure.vars = c(cols[1:2],"dmgval"))
 
 ```
-
-We still have a lot of different event-types that have rather typos or some 
-additional information. Lets see the share of those dirty/multi-lable events 
-in overall damage volume/value.
+Finaly, there are still lots of cases left that are misspelled or 
+have several event types per case or have other problems. We will 
+show only most harmfull events for which at least of 80% all registered damage is acounted.
+All other events are summarizes in "other" lable. So every event in those 20% has
+less impact on variable of interest than any mentioned.
 ```{r}
 # kind of bad with sum==0
 stormSummary[,share:=value/sum(value,na.rm=T),
@@ -133,18 +135,19 @@ setorder(stormSummary,variable,share)
 stormSummary[,cumsum:=cumsum(share),by=.(variable)]
 # 8 events have done >80% damage to health(deaths and injuries independetly)
 stormSummary[cumsum>.2 & variable!="dmgval",evtype_short %>% unique()]
+#mark anything below .2 in cummulative share sum as other
 stormSummary[,evtype_health:=evtype_short][
       cumsum<=.2 & variable!="dmgval",evtype_health:="other"]
 # 7 events have done >80% damage to the property and crop
 stormSummary[cumsum>.2 & variable=="dmgval",evtype_short %>% unique()]
+#mark anything below .2 in cummulative share sum as other
 stormSummary[,evtype_pcdmg:=evtype_short][
       cumsum<=.2 & variable=="dmgval",evtype_pcdmg:="other"]
 ```
 ###Results
-Tornados and heat are 2 most frequent events that lead to death with shares  
-in 37% and 20% of all death respectivly. Also tornados is reason for majority injuries(65%).
-Floods(32%), hurricanes(19%) and tornados(12%) are events that made the most damage
-to property and crop.
+Tornados(37%) and heat(20%) are 2 most frequent events that lead to death with total share of 57%
+of all fatalities caused by weather events. Tornados are also a reason of majority injuries(65%).
+Floods(32%), hurricanes(19%) and tornados(12%) are the most economicaly harmfull weather events.
 
 
 ```{r}
@@ -175,7 +178,8 @@ ggplot(data=stormHealth,
                                   round(share,2)*100)),
                 color="white",hjust="right") +
       facet_wrap(.~variable,scales = "free_x") + 
-      labs(y="Number of cases across USA",x="Cause event") 
+      labs(y="Number of cases across USA",x="Cause event")+
+      ggtitle("Public health damage across USA")
       
 stormPCDamage$variable="Damage"
 ggplot(data=stormPCDamage,
@@ -190,7 +194,8 @@ ggplot(data=stormPCDamage,
                                   round(share,2)*100)),
                 color="white",hjust="right")+
       facet_wrap(.~variable,scales = "free_x") + 
-      labs(y="Damage across USA value, Billions $ ",x="Cause event")
+      labs(y="Damage across USA in Billions $ ",x="Cause event") +
+      ggtitle("Economical harm value across USA")
 ```
 
 
